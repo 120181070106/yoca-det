@@ -49,10 +49,10 @@ class DecodeBox():
     def decode_box(self, inputs):
         # dbox  batch_size, 4, 8400
         # cls   batch_size, 20, 8400
-        dbox, cls, origin_cls, anchors, strides,dis,ang = inputs
+        dbox, cls, origin_cls, anchors, strides,ang = inputs
         # 获得中心宽高坐标
         dbox    = dist2bbox(dbox, anchors.unsqueeze(0), xywh=True, dim=1) * strides
-        y       = torch.cat((dbox, cls.sigmoid(),dis,ang), 1).permute(0, 2, 1)
+        y       = torch.cat((dbox, cls.sigmoid(),ang), 1).permute(0, 2, 1)
         # 进行归一化，到0~1之间
         y[:, :, :4] = y[:, :, :4] / torch.Tensor([self.input_shape[1], self.input_shape[0], self.input_shape[1], self.input_shape[0]]).to(y.device)
         return y
@@ -121,7 +121,6 @@ class DecodeBox():
                 if self.相交相似(框集[i],框集[j]):
                     框集[i,4] *= 2; break
         return 框集# [x1, y1, x2, y2, confidence, class, rotation]
-    
     def non_max_suppression(self, prediction, num_classes, input_shape, image_shape, letterbox_image, conf_thres=0.5, nms_thres=0.4):
         #----------------------------------------------------------#
         #   将预测结果的格式转换成左上角右下角的格式。
@@ -162,8 +161,7 @@ class DecodeBox():
             #   detections  [num_anchors, 6]
             #   6的内容为：x1, y1, x2, y2, class_conf, class_pred
             #-------------------------------------------------------------------------#
-            detections = torch.cat((image_pred[:, :4], class_conf.float(), class_pred.float(),ang_conf.float()), 1)
-            
+            detections = torch.cat((image_pred[:, :4], class_conf.float(), class_pred.float(),ang_conf.float()), 1)#参照下句
 
             #------------------------------------------#
             #   获得预测结果中包含的所有种类

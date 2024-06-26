@@ -105,8 +105,7 @@ class YoloBody(nn.Module):
         c2, c3   = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], num_classes)  # channels
         self.cv2 = nn.ModuleList(nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch)
         self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, num_classes, 1)) for x in ch)
-        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, 64, 3), Conv(64, 64, 3), nn.Conv2d(64, 1, 1), nn.Sigmoid()) for x in ch)
-        self.cv5 = nn.ModuleList(nn.Sequential(Conv(x, 64, 3), Conv(64, 64, 3), nn.Conv2d(64, 8, 1)) for x in ch)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, 64, 3), Conv(64, 64, 3), nn.Conv2d(64, 8, 1)) for x in ch)
         if not pretrained:
             weights_init(self)
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
@@ -164,7 +163,7 @@ class YoloBody(nn.Module):
         # P5 1024 * deep_mul, 20, 20 => num_classes + self.reg_max * 4, 20, 20
         x = [P3, P4, P5]
         for i in range(self.nl):
-            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i]),self.cv4[i](x[i]), self.cv5[i](x[i])), 1)
+            x[i]=torch.cat((self.cv2[i](x[i]),self.cv3[i](x[i]),self.cv4[i](x[i])),1)
 
         if self.shape != shape:
             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
@@ -172,7 +171,7 @@ class YoloBody(nn.Module):
         
         # num_classes + self.reg_max * 4 , 8400 =>  cls num_classes, 8400; 
         #                                           box self.reg_max * 4, 8400
-        box,cls,dis,ang        = torch.cat([xi.view(shape[0], self.no+9, -1) for xi in x], 2).split((self.reg_max * 4, self.num_classes,1,8), 1)
+        box,cls, ang        = torch.cat([xi.view(shape[0], self.no+8, -1) for xi in x], 2).split((self.reg_max * 4, self.num_classes,8), 1)
         # origin_cls      = [xi.split((self.reg_max * 4, self.num_classes), 1)[1] for xi in x]
         dbox            = self.dfl(box)
-        return dbox, cls, x, self.anchors.to(dbox.device), self.strides.to(dbox.device),dis,ang #需去距离头
+        return dbox, cls, x, self.anchors.to(dbox.device), self.strides.to(dbox.device), ang #需去距离头
