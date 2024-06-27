@@ -94,7 +94,7 @@ def fit_one_epoch(model_train, model, ema, yolo_loss, loss_history, eval_callbac
             outputs     = model_train_eval(images)
             loss_value  = yolo_loss(outputs, bboxes)
 
-        val_loss += loss_value.item()
+        val_loss += loss_value[0].item()
         if local_rank == 0:
             pbar.set_postfix(**{'val_loss': val_loss / (iteration + 1)})
             pbar.update(1)

@@ -495,7 +495,7 @@ class Loss:
         loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
         mask = target_scores.sum(dim=-1)>0 #被当作样本的锚点掩码
         预测角矢=预测角矢[mask];  目标角矢=目标角矢[mask] #过一遍掩码,使仅目标区得训
-        loss[3] = 0.01*self.bce(预测角矢, 目标角矢.to(dtype)).sum()/target_scores_sum
+        loss[3] = self.bce(预测角矢, 目标角矢.to(dtype)).sum()/mask.sum() #除以掩码数，代替原target_scores_sum的半个掩区，得到均损
 
         # 计算bbox的损失
         if fg_mask.sum():
