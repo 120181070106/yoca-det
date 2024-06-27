@@ -505,7 +505,7 @@ class Loss:
         loss[0] *= 7.5  # box gain
         loss[1] *= 0.5  # cls gain
         loss[2] *= 1.5  # dfl gain
-        return loss.sum() # loss(box, cls, dfl) # * batch_size
+        return loss.sum(),loss[3] # loss(box, cls, dfl) # * batch_size
 
 def is_parallel(model):
     # Returns True if model is of type DP or DDP
