@@ -8,7 +8,7 @@ from utils.utils import get_lr
 def fit_one_epoch(model_train, model, ema, yolo_loss, loss_history, eval_callback, optimizer, epoch, epoch_step, epoch_step_val, gen, gen_val, Epoch, cuda, fp16, scaler, save_period, save_dir, local_rank=0):
     loss        = 0
     val_loss    = 0
-
+    anl =0
     if local_rank == 0:
         # print('Start Train')
         pbar = tqdm(total=epoch_step,desc=f'Epoch {epoch + 1}/{Epoch}',postfix=dict,mininterval=0.3)
@@ -46,7 +46,7 @@ def fit_one_epoch(model_train, model, ema, yolo_loss, loss_history, eval_callbac
                 #   前向传播
                 #----------------------#
                 outputs         = model_train(images)
-                loss_value = yolo_loss(outputs, bboxes)
+                loss_value,loss_angle = yolo_loss(outputs, bboxes)
 
             #----------------------#
             #   反向传播
@@ -60,10 +60,9 @@ def fit_one_epoch(model_train, model, ema, yolo_loss, loss_history, eval_callbac
             ema.update(model_train)
 
         loss += loss_value.item()
-        
+        anl  += loss_angle.item()        
         if local_rank == 0:
-            pbar.set_postfix(**{'loss'  : loss / (iteration + 1), 
-                                'lr'    : get_lr(optimizer)})
+            pbar.set_postfix(**{'loss'  : loss / (iteration + 1), "anl":anl / (iteration + 1), 'lr'    : get_lr(optimizer)})
             pbar.update(1)
 
     if local_rank == 0:

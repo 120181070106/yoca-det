@@ -86,7 +86,7 @@ class TaskAlignedAssigner(nn.Module):
         self.roll_out_thr   = roll_out_thr
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels,角径, gt_bboxes, mask_gt):
         """This code referenced to
            https://github.com/Nioolek/PPYOLOE_pytorch/blob/master/ppyoloe/assigner/tal_assigner.py
 
@@ -131,7 +131,7 @@ class TaskAlignedAssigner(nn.Module):
         # b, 8400
         # b, 8400, 4
         # b, 8400, 80
-        target_labels, target_bboxes, target_scores = self.get_targets(gt_labels, gt_bboxes, target_gt_idx, fg_mask)
+        target_labels, target_bboxes, target_scores,目标角矢 = self.get_targets(gt_labels, 角径, gt_bboxes, target_gt_idx, fg_mask)
 
         # 乘上mask_pos，把不满足真实框满足的锚点的都置0
         align_metric        *= mask_pos
@@ -146,7 +146,7 @@ class TaskAlignedAssigner(nn.Module):
         # target_scores作为正则的标签
         target_scores       = target_scores * norm_align_metric
 
-        return target_labels, target_bboxes, target_scores, fg_mask.bool(), target_gt_idx
+        return target_labels, target_bboxes, target_scores, fg_mask.bool(), target_gt_idx,目标角矢
 
     def get_pos_mask(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt):
         # pd_scores bs, num_total_anchors, num_classes
@@ -236,7 +236,7 @@ class TaskAlignedAssigner(nn.Module):
         is_in_topk = torch.where(is_in_topk > 1, 0, is_in_topk)
         return is_in_topk.to(metrics.dtype)
 
-    def get_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask):
+    def get_targets(self, gt_labels,角径, gt_bboxes, target_gt_idx, fg_mask):
         """
         Args:
             gt_labels       : (b, max_num_obj, 1)
@@ -251,6 +251,7 @@ class TaskAlignedAssigner(nn.Module):
         target_gt_idx   = target_gt_idx + batch_ind * self.n_max_boxes
         # b, h*w    用于flatten后读取标签
         target_labels   = gt_labels.long().flatten()[target_gt_idx]
+        目标角矢   = F.one_hot(角径.long().flatten()[target_gt_idx],8)
         # b, h*w, 4 用于flatten后读取box
         target_bboxes   = gt_bboxes.view(-1, 4)[target_gt_idx]
         
@@ -261,7 +262,7 @@ class TaskAlignedAssigner(nn.Module):
         fg_scores_mask  = fg_mask[:, :, None].repeat(1, 1, self.num_classes)  # (b, h*w, 80)
         target_scores   = torch.where(fg_scores_mask > 0, target_scores, 0)
 
-        return target_labels, target_bboxes, target_scores
+        return target_labels, target_bboxes, target_scores,目标角矢
 
 def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
     # Returns Intersection over Union (IoU) of box1(1,4) to box2(n,4)
@@ -383,6 +384,27 @@ class Loss:
                                             roll_out_thr=roll_out_thr)
         self.bbox_loss  = BboxLoss(model.reg_max - 1, use_dfl=self.use_dfl)
         self.proj       = torch.arange(model.reg_max, dtype=torch.float)
+    def 角径1(self, gt,n): #算所有框的中心点 [nb,4]  两角径函连着插入
+        中点集=torch.stack([torch.tensor([(b[0]+b[2]),(b[1]+b[3])]) for b in gt/2]);角度集=[]
+        for i in range(gt.shape[0]):#[nb,4]需要指定是在第二维度得[nb,],[1,4]则不需 
+            当前点 = 中点集[i]; 框距=torch.norm(中点集-当前点,dim=1)
+            框距[i]=float('inf'); 最近点 = 中点集[torch.argmin(框距)]#略自
+            角度集.append(torch.atan2(torch.tensor(1),(最近点[0]-当前点[0])/(最近点[1]-当前点[1]))*180/math.pi)# 弧度制转角度制
+            if (i==gt.shape[0]-1)*(gt.shape[0]<n):
+                for j in range(n-i-1):角度集.append(torch.tensor(0))
+        return torch.stack(角度集).to(gt.device)
+    def 角径(self, gt):# 实战中输入加上了批数为[b,n,4]，并需结合掩码
+        角度集=[] #此句不能合并到入参中，因为这样下次算损时会结合上次的最大框数
+        if gt.dim()==2:return 角径1(gt)
+        b,n,_=gt.shape
+        for i in range(b):
+            待处=gt[i][gt[i].sum(1,False)>0]
+            角度=self.角径1(待处,n)
+            角度集.append(角度)
+        角度集=torch.stack(角度集).to(gt.device)
+        角度集=((角度集+11.25)/22.5).long()
+        角度集*=(角度集!=8)#torch.clamp(,min=0,max=8)
+        return 角度集 #在最末尾与距离集堆叠
 
     def preprocess(self, targets, batch_size, scale_tensor):
         if targets.shape[0] == 0:
@@ -417,15 +439,16 @@ class Loss:
         # 获得使用的device
         device  = preds[1].device
         # box, cls, dfl三部分的损失
-        loss    = torch.zeros(3, device=device)  
+        loss    = torch.zeros(4, device=device)  
         # 获得特征，并进行划分
         feats   = preds[2] if isinstance(preds, tuple) else preds
-        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split((self.reg_max * 4, self.nc), 1)
+        pred_distri, pred_scores, 预测角矢 = torch.cat([xi.view(feats[0].shape[0], self.no+8, -1) for xi in feats], 2).split((self.reg_max * 4, self.nc,8), 1) 
 
         # bs, num_classes + self.reg_max * 4 , 8400 =>  cls bs, num_classes, 8400; 
         #                                               box bs, self.reg_max * 4, 8400
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+        预测角矢 = 预测角矢.permute(0, 2, 1).contiguous()#b,8400,8
 
         # 获得batch size与dtype
         dtype       = pred_scores.dtype
@@ -448,6 +471,7 @@ class Loss:
         # 求哪些框是有目标的，哪些是填充的
         # bs, max_boxes_num
         mask_gt                 = gt_bboxes.sum(2, keepdim=True).gt_(0)
+        角径 = self.角径(gt_bboxes)
 
         # pboxes
         # 对预测结果进行解码，获得预测框
@@ -458,10 +482,10 @@ class Loss:
         # target_bboxes     bs, 8400, 4
         # target_scores     bs, 8400, 80
         # fg_mask           bs, 8400
-        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+        _, target_bboxes, target_scores, fg_mask, _ ,目标角矢= self.assigner(
             pred_scores.detach().sigmoid(), (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
-            anchor_points * stride_tensor, gt_labels, gt_bboxes, mask_gt
-        )
+            anchor_points * stride_tensor, gt_labels,角径, gt_bboxes, mask_gt
+        )  #具体见后TaskAlignedAssigner类
 
         target_bboxes       /= stride_tensor
         target_scores_sum   = max(target_scores.sum(), 1)
@@ -469,6 +493,9 @@ class Loss:
         # 计算分类的损失
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
         loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        mask = target_scores.sum(dim=-1)>0 #被当作样本的锚点掩码
+        预测角矢=预测角矢[mask];  目标角矢=目标角矢[mask] #过一遍掩码,使仅目标区得训
+        loss[3] = 0.01*self.bce(预测角矢, 目标角矢.to(dtype)).sum()/target_scores_sum
 
         # 计算bbox的损失
         if fg_mask.sum():

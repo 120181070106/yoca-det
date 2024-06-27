@@ -155,7 +155,7 @@ class DecodeBox():
             max_detections = self.信度调整(max_detections)
 # ------------------------(yolo.py,可视化)---------------------------------#
 class YOLO(object):
-    "model_path"        : '检头.pth',#自训的
+    "model_path"        : 'det.pth',#自训的
     def detect_image(self, image, crop = False, count = False):
             # top_label   = np.array(results[0][:, 5], dtype = 'int32')
             aug_conf   = np.array(results[0][:, 6], dtype = 'int32')
@@ -168,11 +168,11 @@ class YOLO(object):
             if hit==0:label = '{:.1f} {}'.format((score*10), aug)
             else:label = '{:.1f} {} *'.format((score*10), aug)
 # ------------------------(train.ipynb)---------------------------------#
-    model_path      = '检头.pth'#自训的
+    model_path      = 'det.pth'#自训的
 
 # 训练部分
-# ------------------------(正文:损失)---------------------------------#
-import torch,random #填补random库来不定时输出角损
+# ------------------------(yolo_training.py)---------------------------------#
+# import torch,random #填补random库来不定时输出角损
 class Loss:
     def 角径1(self, gt,n): #算所有框的中心点 [nb,4]  两角径函连着插入
         中点集=torch.stack([torch.tensor([(b[0]+b[2]),(b[1]+b[3])]) for b in gt/2]);角度集=[]
@@ -210,8 +210,11 @@ class Loss:
             pred_scores.detach().sigmoid(), (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor, gt_labels,角径, gt_bboxes, mask_gt
         )  #具体见后TaskAlignedAssigner类
-        loss[3] = 0.01*self.bce(预测角矢, 目标角矢.to(dtype)).sum() / target_scores_sum
-        if random.random()<0.03:print("角损:",loss[3].item())
+        # loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum()..
+        mask = target_scores.sum(dim=-1)>0 #被当作样本的锚点掩码   后面连着复制
+        预测角矢=预测角矢[mask];  目标角矢=目标角矢[mask] #过一遍掩码,使仅目标区得训
+        loss[3] = 0.01*self.bce(预测角矢, 目标角矢.to(dtype)).sum()/target_scores_sum
+        return loss.sum(), loss[3]#单独将角损作出，显示于实时进度条上
 class TaskAlignedAssigner(nn.Module):
     def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels,角径, gt_bboxes, mask_gt): #注意入参有添加“角径",下一函数亦然
         target_labels, target_bboxes, target_scores,目标角矢 = self.get_targets(gt_labels, 角径, gt_bboxes, target_gt_idx, fg_mask)
@@ -220,4 +223,14 @@ class TaskAlignedAssigner(nn.Module):
         # target_labels   = gt_labels.long().flatten()[target_gt_idx]
         目标角矢   = F.one_hot(角径.long().flatten()[target_gt_idx],8)
         return target_labels, target_bboxes, target_scores,目标角矢
+# ------------------------(utils_fit.py)---------------------------------#
+def fit_one_epoch():
+    # val_loss    = 0
+    anl =0
+    #   前向传播
+                loss_value,loss_angle = yolo_loss(outputs, bboxes)
+        # loss += loss_value.item()
+        anl  += loss_angle.item()
+        if local_rank == 0:
+            pbar.set_postfix(**{'loss'  : loss / (iteration + 1), "anl":anl / (iteration + 1), 'lr'    : get_lr(optimizer)})
 ```
