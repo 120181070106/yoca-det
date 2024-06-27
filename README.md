@@ -213,7 +213,7 @@ class Loss:
         # loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum()..
         mask = target_scores.sum(dim=-1)>0 #被当作样本的锚点掩码   后面连着复制
         预测角矢=预测角矢[mask];  目标角矢=目标角矢[mask] #过一遍掩码,使仅目标区得训
-        loss[3] = 0.01*self.bce(预测角矢, 目标角矢.to(dtype)).sum()/target_scores_sum
+        loss[3] = self.bce(预测角矢, 目标角矢.to(dtype)).sum()/mask.sum() #除以掩码数，代替原target_scores_sum的半个掩区，得到均损
         return loss.sum(), loss[3]#单独将角损作出，显示于实时进度条上
 class TaskAlignedAssigner(nn.Module):
     def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels,角径, gt_bboxes, mask_gt): #注意入参有添加“角径",下一函数亦然
@@ -233,4 +233,6 @@ def fit_one_epoch():
         anl  += loss_angle.item()
         if local_rank == 0:
             pbar.set_postfix(**{'loss'  : loss / (iteration + 1), "anl":anl / (iteration + 1), 'lr'    : get_lr(optimizer)})
+    #   后面验证时加上下标零：
+        val_loss += loss_value[0].item()
 ```
